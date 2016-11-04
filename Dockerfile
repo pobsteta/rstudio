@@ -33,8 +33,8 @@ ENV PATH /usr/lib/rstudio-server/bin/:$PATH
 ## télécharge et installe RStudio server et ses dépendances
 RUN rm -rf /var/lib/apt/lists/ \
   && apt-get update \
-  && apt-get install -t stable libssl1.0.0 \
-  && apt-get install -y -t unstable --no-install-recommends \
+  && apt-get install -y libssl1.0.0 \
+  && apt-get install -y --no-install-recommends \
     ca-certificates \
     file \
     git \
@@ -59,16 +59,6 @@ RUN rm -rf /var/lib/apt/lists/ \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/
 
-## S'assure que both httr et httpuv sont installés downstream, oauth 2.0 flows et travaillent correctement.
-RUN echo '\n\
-\n# Configure httr to perform out-of-band authentication if HTTR_LOCALHOST \
-\n# is not set since a redirect to localhost may not work depending upon \
-\n# where this Docker container is running. \
-\nif(is.na(Sys.getenv("HTTR_LOCALHOST", unset=NA))) { \
-\n  options(httr_oob_default = TRUE) \
-\n}' >> /etc/R/Rprofile.site
-
-RUN echo "PATH=\"/usr/lib/rstudio-server/bin/:\${PATH}\"" >> /etc/R/Renviron.site
 
 ## A default user system configuration. For historical reasons,
 ## we want user to be 'rstudio', but it is 'docker' in r-base
