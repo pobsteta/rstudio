@@ -2,6 +2,7 @@
 #
 # This image includes the following tools
 # - R 3.3.2
+# - RStudio 1.0.44
 #
 # Version 1.0
 
@@ -12,75 +13,60 @@ MAINTAINER Pascal Obstetar <pascal.obstetar@bioecoforests.com>
 
 # On évite les messages debconf
 ENV DEBIAN_FRONTEND noninteractive
+ENV RSTUDIO 1.0.44
 
 # Ajoute gosub pour faciliter les actions en root
 ENV GOSU_VERSION 1.7
 RUN set -x \
-	&& apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/* \
-	&& wget -O /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$(dpkg --print-architecture)" \
-	&& wget -O /usr/local/bin/gosu.asc "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$(dpkg --print-architecture).asc" \
-	&& export GNUPGHOME="$(mktemp -d)" \
-	&& gpg --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys B42F6819007F00F88E364FD4036A9C25BF357DD4 \
-	&& gpg --batch --verify /usr/local/bin/gosu.asc /usr/local/bin/gosu \
-	&& rm -r "$GNUPGHOME" /usr/local/bin/gosu.asc \
-	&& chmod +x /usr/local/bin/gosu \
-	&& gosu nobody true \
-	&& apt-get purge -y --auto-remove ca-certificates
+    && apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/* \
+    && wget -O /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$(dpkg --print-architecture)" \
+    && wget -O /usr/local/bin/gosu.asc "https://github.com/tianon/gosu/releases/download/$GOSU_VERSION/gosu-$(dpkg --print-architecture).asc" \
+    && export GNUPGHOME="$(mktemp -d)" \
+    && gpg --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys B42F6819007F00F88E364FD4036A9C25BF357DD4 \
+    && gpg --batch --verify /usr/local/bin/gosu.asc /usr/local/bin/gosu \
+    && rm -r "$GNUPGHOME" /usr/local/bin/gosu.asc \
+    && chmod +x /usr/local/bin/gosu \
+    && gosu nobody true \
+    && apt-get purge -y --auto-remove ca-certificates
 
-## Ajoute le bainaire RStudio au PATH
-ENV PATH /usr/lib/rstudio-server/bin/:$PATH
-
-## télécharge et installe RStudio server et ses dépendances
-RUN rm -rf /var/lib/apt/lists/ \
-  && apt-get update \
-  && apt-get install -y libssl1.0.0 \
-  && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    file \
-    git \
+# Ajoute le dépôt pour mis à jour des conteneurs
+RUN apt-get update && apt-get install -y -q r-base \
+    r-base-dev \
+    gdebi-core \
     libapparmor1 \
-    libedit2 \
-    libcurl4-openssl-dev \
-    libssl-dev \
-    lsb-release \
-    psmisc \
-    python-setuptools \
     sudo \
-  && VER=$(wget --no-check-certificate -qO- https://s3.amazonaws.com/rstudio-server/current.ver) \
-  && wget -q http://download2.rstudio.org/rstudio-server-${VER}-amd64.deb \
-  && dpkg -i rstudio-server-${VER}-amd64.deb \
-  && rm rstudio-server-*-amd64.deb \
-  && ln -s /usr/lib/rstudio-server/bin/pandoc/pandoc /usr/local/bin \
-  && ln -s /usr/lib/rstudio-server/bin/pandoc/pandoc-citeproc /usr/local/bin \
-  && wget https://github.com/jgm/pandoc-templates/archive/1.15.0.6.tar.gz \
-  && mkdir -p /opt/pandoc/templates && tar zxf 1.15.0.6.tar.gz \
-  && cp -r pandoc-templates*/* /opt/pandoc/templates && rm -rf pandoc-templates* \
-  && mkdir /root/.pandoc && ln -s /opt/pandoc/templates /root/.pandoc/templates \
-  && apt-get clean \
-  && rm -rf /var/lib/apt/lists/
+    libcurl4-openssl-dev \
+    libssl1.0.0 \
+    && apt-get clean \
+    && rm -rf /tmp/* /var/tmp/* \
+    && rm -rf /var/lib/apt/lists/*
 
+RUN update-locale
+RUN wget http://download2.rstudio.org/rstudio-server-$RSTUDIO-amd64.deb \
+    && gdebi -n rstudio-server-$RSTUDIO-amd64.deb \
+    && rm /rstudio-server-$RSTUDIO-amd64.deb
 
-## A default user system configuration. For historical reasons,
-## we want user to be 'rstudio', but it is 'docker' in r-base
-RUN usermod -l rstudio docker \
-  && usermod -m -d /home/rstudio rstudio \
-  && groupmod -n rstudio docker \
-  && echo '"\e[5~": history-search-backward' >> /etc/inputrc \
-  && echo '"\e[6~": history-search-backward' >> /etc/inputrc \
-  && echo "rstudio:rstudio" | chpasswd
+## Startup scripts
+# Pre-config scrip that maybe need to be run one time only when the container run the first time .. using a flag to don't
+# run it again ... use for conf for service ... when run the first time ...
+RUN mkdir -p /etc/my_init.d
+COPY startup.sh /etc/my_init.d/startup.sh
+RUN chmod +x /etc/my_init.d/startup.sh
 
-## Use s6
-RUN wget -P /tmp/ https://github.com/just-containers/s6-overlay/releases/download/v1.11.0.1/s6-overlay-amd64.tar.gz \
-  && tar xzf /tmp/s6-overlay-amd64.tar.gz -C /
+## Adding Deamons to containers
+RUN mkdir /etc/service/rserver /var/log/rserver ; sync
+COPY rserver.sh /etc/service/rserver/run
+RUN chmod +x /etc/service/rserver/run \
+    && chown -R rstudio-server /var/log/rserver
 
-COPY userconf.sh /etc/cont-init.d/conf
-COPY run.sh /etc/services.d/rstudio/run
+# Add files and script that need to be use for this container
+# include conf file relate to service/daemon
+# additionsl tools to be use internally
+RUN (adduser --disabled-password --gecos "" guest && echo "guest:guest"|chpasswd)
 
-## Ajoute 100 utilisateurs pour des sessions de cours
-COPY add-students.sh /usr/local/bin/add-students
+# to allow access from outside of the container to the container service
+# at that ports need to allow access from firewall if need to access it outside of the server.
 EXPOSE 8787
 
-## Expose a default volume
-VOLUME /home/rstudio
-
-CMD ["/init"]
+# Use baseimage-docker's init system.
+CMD ["/sbin/my_init"]
